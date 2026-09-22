@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 import urllib.parse
+import re
 from flask import Flask, request, jsonify, send_file
 from pedalboard import Pedalboard, Gain, Limiter, PeakFilter
 from pedalboard.io import AudioFile
@@ -306,6 +307,101 @@ def info():
         "thumbnail": info_data.get("thumbnail"),
         "webpage_url": info_data.get("webpage_url", url),
         "extractor": info_data.get("extractor"),
+    })
+
+
+
+import requests
+
+SPOTIFY_ID_RE = re.compile(r"playlist/([a-zA-Z0-9]+)")
+
+
+def _deep_find_tracks(obj):
+    """Fallback: recursively search the JSON for anything shaped like a track list,
+    in case Spotify's structure differs from the known path (region/A-B testing)."""
+    if isinstance(obj, dict):
+        if "trackList" in obj and isinstance(obj["trackList"], list):
+            return obj["trackList"]
+        for v in obj.values():
+            found = _deep_find_tracks(v)
+            if found:
+                return found
+    elif isinstance(obj, list):
+        for item in obj:
+            found = _deep_find_tracks(item)
+            if found:
+                return found
+    return None
+
+
+@app.route("/spotify", methods=["POST"])
+def spotify_playlist():
+    if not check_auth(request):
+        return jsonify({"error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    url = data.get("url")
+    if not url:
+        return jsonify({"error": "missing \'url\'"}), 400
+
+    match = SPOTIFY_ID_RE.search(url)
+    if not match:
+        return jsonify({"error": "could not extract playlist id from url"}), 400
+    playlist_id = match.group(1)
+
+    embed_url = f"https://open.spotify.com/embed/playlist/{playlist_id}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+
+    try:
+        resp = requests.get(embed_url, headers=headers, timeout=15)
+    except requests.RequestException as e:
+        return jsonify({"error": f"fetch failed: {e}"}), 502
+
+    next_data_match = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>',
+        resp.text,
+    )
+    if not next_data_match:
+        return jsonify({
+            "error": "could not find __NEXT_DATA__ in embed page",
+            "html_snippet": resp.text[:1000],
+        }), 502
+
+    try:
+        next_data = json.loads(next_data_match.group(1))
+    except json.JSONDecodeError:
+        return jsonify({"error": "could not parse playlist json"}), 502
+
+    entity = (
+        next_data.get("props", {})
+        .get("pageProps", {})
+        .get("state", {})
+        .get("data", {})
+        .get("entity", {})
+    )
+
+    if not entity:
+        return jsonify({
+            "error": "unexpected embed page structure",
+            "top_level_keys": list(next_data.keys()),
+        }), 502
+
+    tracks = entity.get("trackList") or _deep_find_tracks(next_data) or []
+
+    results = []
+    for t in tracks:
+        results.append({
+            "title": t.get("title"),
+            "subtitle": t.get("subtitle"),
+            "duration_ms": t.get("duration"),
+            "uri": t.get("uri"),
+        })
+
+    return jsonify({
+        "playlist_title": entity.get("title") or entity.get("name"),
+        "cover_art": entity.get("coverArt", {}).get("sources", [{}])[-1].get("url") if entity.get("coverArt") else None,
+        "track_count": len(results),
+        "tracks": results,
     })
 
 
