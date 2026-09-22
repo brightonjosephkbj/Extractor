@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -11,4 +11,4 @@ COPY . .
 ENV PORT=8080
 EXPOSE 8080
 
-CMD gunicorn -b 0.0.0.0:${PORT:-8080} app:app
+CMD gunicorn -b 0.0.0.0:${PORT:-8080} app:app --timeout 300
