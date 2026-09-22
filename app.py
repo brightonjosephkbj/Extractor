@@ -405,5 +405,54 @@ def spotify_playlist():
     })
 
 
+
+@app.route("/spotify/debug", methods=["POST"])
+def spotify_debug():
+    if not check_auth(request):
+        return jsonify({"error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    url = data.get("url")
+    if not url:
+        return jsonify({"error": "missing \'url\'"}), 400
+
+    match = SPOTIFY_ID_RE.search(url)
+    if not match:
+        return jsonify({"error": "could not extract playlist id"}), 400
+    playlist_id = match.group(1)
+
+    embed_url = f"https://open.spotify.com/embed/playlist/{playlist_id}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    resp = requests.get(embed_url, headers=headers, timeout=15)
+
+    next_data_match = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>',
+        resp.text,
+    )
+    if not next_data_match:
+        return jsonify({"error": "no next_data found"}), 502
+
+    next_data = json.loads(next_data_match.group(1))
+    entity = (
+        next_data.get("props", {})
+        .get("pageProps", {})
+        .get("state", {})
+        .get("data", {})
+        .get("entity", {})
+    )
+
+    # Return entity's top-level keys and any non-list values (skip dumping full trackList)
+    summary = {}
+    for k, v in entity.items():
+        if isinstance(v, list):
+            summary[k] = f"<list of {len(v)} items>"
+        elif isinstance(v, dict):
+            summary[k] = f"<dict with keys: {list(v.keys())}>"
+        else:
+            summary[k] = v
+
+    return jsonify(summary)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, threaded=True)
