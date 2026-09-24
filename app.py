@@ -38,7 +38,7 @@ EXTRACT_SLOTS = threading.Semaphore(3)
 SEARCH_SLOTS = threading.Semaphore(4)
 
 # Cookies not set up yet - only used if this file happens to exist later
-YTDLP_COOKIES = os.path.expanduser("~/ytcookies/cookies_fixed.txt")
+YTDLP_COOKIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
 YTDLP_POT_ARGS = []
 
 # YouTube now requires running some of its player JS to derive stream
