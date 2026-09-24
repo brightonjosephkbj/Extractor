@@ -41,6 +41,13 @@ SEARCH_SLOTS = threading.Semaphore(4)
 YTDLP_COOKIES = os.path.expanduser("~/ytcookies/cookies_fixed.txt")
 YTDLP_POT_ARGS = []
 
+# YouTube now requires running some of its player JS to derive stream
+# signatures. yt-dlp needs a JS runtime for this - Deno is installed via
+# the Dockerfile. Without this flag yt-dlp still tries to auto-detect one,
+# but being explicit avoids "No supported JavaScript runtime could be
+# found" if detection ever fails silently.
+JS_RUNTIME_ARGS = ["--extractor-args", "youtube:jsruntime=deno"]
+
 
 def cookie_args():
     return ["--cookies", YTDLP_COOKIES] if os.path.exists(YTDLP_COOKIES) else []
@@ -121,7 +128,7 @@ def search():
 
     cmd = [
         "yt-dlp", f"ytsearch{limit}:{query}",
-        *cookie_args(), *YTDLP_POT_ARGS,
+        *cookie_args(), *YTDLP_POT_ARGS, *JS_RUNTIME_ARGS,
         "--flat-playlist", "--dump-json", "--no-warnings",
     ]
 
@@ -183,7 +190,7 @@ def extract():
         bitrate = AUDIO_QUALITY_MAP.get(quality, "192")
         cmd = [
             "yt-dlp", "-x", "--audio-format", "mp3",
-            *cookie_args(), *YTDLP_POT_ARGS,
+            *cookie_args(), *YTDLP_POT_ARGS, *JS_RUNTIME_ARGS,
             "--audio-quality", bitrate + "K",
             "--write-info-json", "-o", out_template, url,
         ]
@@ -195,7 +202,7 @@ def extract():
         fmt = f"bv*[height<={height}]+ba/b[height<={height}]/b"
         cmd = [
             "yt-dlp", "-f", fmt,
-            *cookie_args(), *YTDLP_POT_ARGS,
+            *cookie_args(), *YTDLP_POT_ARGS, *JS_RUNTIME_ARGS,
             "--merge-output-format", "mp4",
             "--write-info-json", "-o", out_template, url,
         ]
@@ -285,7 +292,7 @@ def info():
     if not url:
         return jsonify({"error": "missing 'url'"}), 400
 
-    cmd = ["yt-dlp", "--dump-json", "--no-warnings", *cookie_args(), *YTDLP_POT_ARGS, "--skip-download", url]
+    cmd = ["yt-dlp", "--dump-json", "--no-warnings", *cookie_args(), *YTDLP_POT_ARGS, *JS_RUNTIME_ARGS, "--skip-download", url]
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
@@ -342,7 +349,7 @@ def spotify_playlist():
     data = request.get_json(silent=True) or {}
     url = data.get("url")
     if not url:
-        return jsonify({"error": "missing \'url\'"}), 400
+        return jsonify({"error": "missing 'url'"}), 400
 
     match = SPOTIFY_ID_RE.search(url)
     if not match:
@@ -414,7 +421,7 @@ def spotify_debug():
     data = request.get_json(silent=True) or {}
     url = data.get("url")
     if not url:
-        return jsonify({"error": "missing \'url\'"}), 400
+        return jsonify({"error": "missing 'url'"}), 400
 
     match = SPOTIFY_ID_RE.search(url)
     if not match:

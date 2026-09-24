@@ -1,7 +1,12 @@
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libsndfile1 curl unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Deno is required by yt-dlp for YouTube's player JS (signature deciphering).
+# Without it, extraction fails with "No supported JavaScript runtime could be found".
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
+ENV PATH="/usr/local/bin:${PATH}"
 
 WORKDIR /app
 COPY requirements.txt .
