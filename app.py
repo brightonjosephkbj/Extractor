@@ -37,6 +37,12 @@ SEARCH_SLOTS = threading.Semaphore(4)
 
 # Cookies not set up yet - only used if this file happens to exist later
 YTDLP_COOKIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+_b64 = os.environ.get("YT_COOKIES_B64")
+if _b64:
+    import base64
+    YTDLP_COOKIES = "/tmp/yt_cookies.txt"
+    with open(YTDLP_COOKIES, "wb") as _f:
+        _f.write(base64.b64decode(_b64))
 YTDLP_POT_ARGS = []
 
 # YouTube now requires running some of its player JS to derive stream
