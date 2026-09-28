@@ -17,4 +17,4 @@ COPY . .
 ENV PORT=8080
 EXPOSE 8080
 
-CMD gunicorn -b 0.0.0.0:${PORT:-8080} app:app --timeout 300
+CMD gunicorn -b 0.0.0.0:${PORT:-8080} app:app --workers 1 --threads 8 --timeout 300

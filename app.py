@@ -24,6 +24,8 @@ app = Flask(__name__)
 
 PORT = int(os.environ.get("PORT", 8000))
 SHARED_SECRET = os.environ.get("EXTRACT_SHARED_SECRET", "change-me")
+if SHARED_SECRET == "change-me":
+    raise RuntimeError("Set EXTRACT_SHARED_SECRET env var")
 MAX_AGE_SECONDS = 3600
 CLEANUP_INTERVAL = 600
 
@@ -48,6 +50,12 @@ if _b64:
     YTDLP_COOKIES = "/tmp/yt_cookies.txt"
     with open(YTDLP_COOKIES, "wb") as _f:
         _f.write(base64.b64decode(_b64))
+_gz = os.environ.get("YT_COOKIES_GZ_B64")
+if _gz:
+    import base64, gzip
+    YTDLP_COOKIES = "/tmp/yt_cookies.txt"
+    with open(YTDLP_COOKIES, "wb") as _f:
+        _f.write(gzip.decompress(base64.b64decode(_gz)))
 YTDLP_POT_ARGS = []
 
 # YouTube now requires running some of its player JS to derive stream
@@ -55,11 +63,17 @@ YTDLP_POT_ARGS = []
 # the Dockerfile. Without this flag yt-dlp still tries to auto-detect one,
 # but being explicit avoids "No supported JavaScript runtime could be
 # found" if detection ever fails silently.
-JS_RUNTIME_ARGS = ["--extractor-args", "youtube:jsruntime=deno"]
+JS_RUNTIME_ARGS = ["--js-runtimes", "deno"]
 
 
-def cookie_args():
-    return ["--cookies", YTDLP_COOKIES] if os.path.exists(YTDLP_COOKIES) else []
+def cookie_args(work_dir=None):
+    if not os.path.exists(YTDLP_COOKIES):
+        return []
+    path = YTDLP_COOKIES
+    if work_dir:
+        path = os.path.join(work_dir, "cookies.txt")
+        shutil.copy(YTDLP_COOKIES, path)
+    return ["--cookies", path]
 
 
 def enhance_audio(input_path, output_path):
@@ -198,7 +212,7 @@ def extract():
         bitrate = AUDIO_QUALITY_MAP.get(quality, "192")
         cmd = [
             "yt-dlp", "-x", "--audio-format", "mp3",
-            *cookie_args(), *YTDLP_POT_ARGS, *JS_RUNTIME_ARGS,
+            *cookie_args(work_dir), *YTDLP_POT_ARGS, *JS_RUNTIME_ARGS,
             "--audio-quality", bitrate + "K",
             "--write-info-json", "-o", out_template, url,
         ]
@@ -210,7 +224,7 @@ def extract():
         fmt = f"bv*[height<={height}]+ba/b[height<={height}]/b"
         cmd = [
             "yt-dlp", "-f", fmt,
-            *cookie_args(), *YTDLP_POT_ARGS, *JS_RUNTIME_ARGS,
+            *cookie_args(work_dir), *YTDLP_POT_ARGS, *JS_RUNTIME_ARGS,
             "--merge-output-format", "mp4",
             "--write-info-json", "-o", out_template, url,
         ]
