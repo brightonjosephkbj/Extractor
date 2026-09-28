@@ -19,6 +19,8 @@ import uuid
 import urllib.parse
 import re
 from flask import Flask, request, jsonify, send_file
+from pedalboard import Pedalboard, Gain, Limiter, PeakFilter
+from pedalboard.io import AudioFile
 
 app = Flask(__name__)
 
@@ -52,16 +54,17 @@ def cookie_args():
 
 
 def enhance_audio(input_path, output_path):
-    af = (
-        "equalizer=f=2500:t=q:w=0.7:g=3,"
-        "volume=6dB,"
-        "alimiter=limit=0.891:release=100"
-    )
-    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af,
-           "-c:a", "libmp3lame", "-q:a", "2", output_path]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    if r.returncode != 0:
-        raise RuntimeError(f"audio enhance failed: {r.stderr[-1000:]}")
+    board = Pedalboard([
+        PeakFilter(cutoff_frequency_hz=2500, gain_db=3, q=0.7),
+        Gain(gain_db=6),
+        Limiter(threshold_db=-1.0, release_ms=100),
+    ])
+    with AudioFile(input_path) as f:
+        audio = f.read(f.frames)
+        samplerate = f.samplerate
+    effected = board(audio, samplerate)
+    with AudioFile(output_path, "w", samplerate, effected.shape[0]) as f:
+        f.write(effected)
 
 
 def enhance_video(input_path, output_path, target_height=2160):

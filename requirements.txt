@@ -1,5 +1,4 @@
 flask
 yt-dlp
 gunicorn
-pedalboard
 requests
