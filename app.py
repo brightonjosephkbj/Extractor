@@ -216,7 +216,7 @@ def extract():
     if result.returncode != 0:
         EXTRACT_SLOTS.release()
         print(f"[extract] yt-dlp failed for mode={mode} url={url}: {result.stderr[-1000:]}")
-        return jsonify({"error": "yt-dlp failed", "stderr": result.stderr[-2000:]}), 502
+        return jsonify({"error": "yt-dlp failed", "stderr": result.stderr[-2000:]}), 422
 
     if not os.path.exists(expected_path):
         EXTRACT_SLOTS.release()
