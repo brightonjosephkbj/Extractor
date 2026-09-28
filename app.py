@@ -37,6 +37,11 @@ SEARCH_SLOTS = threading.Semaphore(4)
 
 # Cookies not set up yet - only used if this file happens to exist later
 YTDLP_COOKIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+_ck = os.environ.get("YT_COOKIES")
+if _ck:
+    YTDLP_COOKIES = "/tmp/yt_cookies.txt"
+    with open(YTDLP_COOKIES, "w") as _f:
+        _f.write(_ck.replace("~T~", "\t").replace("~N~", "\n"))
 _b64 = os.environ.get("YT_COOKIES_B64")
 if _b64:
     import base64
