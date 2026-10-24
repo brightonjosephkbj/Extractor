@@ -16,6 +16,8 @@ import tempfile
 import threading
 import time
 import uuid
+import hmac
+import secrets
 import urllib.parse
 import re
 from flask import Flask, request, jsonify, send_file
@@ -188,12 +190,7 @@ def search():
         SEARCH_SLOTS.release()
 
 
-@app.route("/extract", methods=["POST"])
-def extract():
-    if not check_auth(request):
-        return jsonify({"error": "unauthorized"}), 401
-    if not EXTRACT_SLOTS.acquire(blocking=False):
-        return jsonify({"error": "server busy, try again shortly"}), 429
+def _extract_work():
 
     data = request.get_json(silent=True) or {}
     url = data.get("url")
@@ -201,10 +198,8 @@ def extract():
     quality = data.get("quality", "medium")
 
     if not url:
-        EXTRACT_SLOTS.release()
         return jsonify({"error": "missing 'url'"}), 400
     if mode not in ("audio", "video"):
-        EXTRACT_SLOTS.release()
         return jsonify({"error": "mode must be 'audio' or 'video'"}), 400
 
     job_id = uuid.uuid4().hex
@@ -240,16 +235,13 @@ def extract():
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
-        EXTRACT_SLOTS.release()
         return jsonify({"error": "extraction timed out"}), 504
 
     if result.returncode != 0:
-        EXTRACT_SLOTS.release()
         print(f"[extract] yt-dlp failed for mode={mode} url={url}: {result.stderr[-1000:]}")
         return jsonify({"error": "yt-dlp failed", "stderr": result.stderr[-2000:]}), 422
 
     if not os.path.exists(expected_path):
-        EXTRACT_SLOTS.release()
         return jsonify({"error": f"extraction succeeded but {download_ext} not found"}), 500
 
     if data.get("enhance"):
@@ -271,14 +263,14 @@ def extract():
     except Exception as e:
         print(f"[extract] could not read info.json: {e}")
 
-    media_meta = {"mimetype": mimetype, "ext": download_ext, "title": title}
+    job_token = secrets.token_urlsafe(24)
+    media_meta = {"mimetype": mimetype, "ext": download_ext, "title": title, "token": job_token}
     with open(os.path.join(work_dir, "media.json"), "w") as f:
         json.dump(media_meta, f)
 
     host = request.host_url.rstrip("/").replace("http://", "https://")
-    stream_url = f"{host}/media/{job_id}?token={urllib.parse.quote(SHARED_SECRET)}"
+    stream_url = f"{host}/media/{job_id}?token={job_token}"
 
-    EXTRACT_SLOTS.release()
     return jsonify({
         "job_id": job_id,
         "stream_url": stream_url,
@@ -288,11 +280,21 @@ def extract():
     })
 
 
+@app.route("/extract", methods=["POST"])
+def extract():
+    if not check_auth(request):
+        return jsonify({"error": "unauthorized"}), 401
+    if not EXTRACT_SLOTS.acquire(blocking=False):
+        return jsonify({"error": "server busy, try again shortly"}), 429
+    try:
+        return _extract_work()
+    finally:
+        EXTRACT_SLOTS.release()
+
+
 @app.route("/media/<job_id>")
 def media(job_id):
     token = request.args.get("token", "")
-    if token != SHARED_SECRET:
-        return jsonify({"error": "unauthorized"}), 401
 
     work_dir = os.path.join(JOBS_ROOT, f"extract_{job_id}")
     meta_path = os.path.join(work_dir, "media.json")
@@ -301,6 +303,10 @@ def media(job_id):
 
     with open(meta_path) as f:
         meta = json.load(f)
+
+    expected = str(meta.get("token", ""))
+    if not expected or not hmac.compare_digest(token.encode(), expected.encode()):
+        return jsonify({"error": "unauthorized"}), 401
 
     file_path = os.path.join(work_dir, f"output.{meta['ext']}")
     if not os.path.exists(file_path):
