@@ -6,3 +6,7 @@ cookies.txt
 cookies.min.txt
 cookies.b64
 c2.txt
+*.mp3
+*.mp4
+__pycache__/
+*.bak

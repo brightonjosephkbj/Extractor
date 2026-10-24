@@ -133,19 +133,15 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
-@app.route("/search", methods=["POST"])
-def search():
+def _search_work():
     if not check_auth(request):
         return jsonify({"error": "unauthorized"}), 401
-    if not SEARCH_SLOTS.acquire(blocking=False):
-        return jsonify({"error": "server busy, try again shortly"}), 429
 
     data = request.get_json(silent=True) or {}
     query = data.get("query")
     limit = min(int(data.get("limit", 5)), 10)
 
     if not query:
-        SEARCH_SLOTS.release()
         return jsonify({"error": "missing 'query'"}), 400
 
     cmd = [
@@ -157,11 +153,9 @@ def search():
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except subprocess.TimeoutExpired:
-        SEARCH_SLOTS.release()
         return jsonify({"error": "search timed out"}), 504
 
     if result.returncode != 0:
-        SEARCH_SLOTS.release()
         return jsonify({"error": "search failed", "stderr": result.stderr[-1000:]}), 502
 
     results = []
@@ -179,8 +173,19 @@ def search():
             "url": entry.get("url") or f"https://youtu.be/{entry.get('id')}",
         })
 
-    SEARCH_SLOTS.release()
     return jsonify({"results": results})
+
+
+@app.route("/search", methods=["POST"])
+def search():
+    if not check_auth(request):
+        return jsonify({"error": "unauthorized"}), 401
+    if not SEARCH_SLOTS.acquire(blocking=False):
+        return jsonify({"error": "server busy, try again shortly"}), 429
+    try:
+        return _search_work()
+    finally:
+        SEARCH_SLOTS.release()
 
 
 @app.route("/extract", methods=["POST"])
