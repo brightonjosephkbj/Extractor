@@ -34,8 +34,8 @@ VIDEO_QUALITY_MAP = {"low": 480, "medium": 720, "high": 1080, "max": 2160}
 
 JOBS_ROOT = tempfile.gettempdir()
 
-EXTRACT_SLOTS = threading.Semaphore(3)
-SEARCH_SLOTS = threading.Semaphore(4)
+EXTRACT_SLOTS = threading.Semaphore(int(os.environ.get("MAX_EXTRACTS", "3")))
+SEARCH_SLOTS = threading.Semaphore(int(os.environ.get("MAX_SEARCHES", "4")))
 
 # Cookies not set up yet - only used if this file happens to exist later
 YTDLP_COOKIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
