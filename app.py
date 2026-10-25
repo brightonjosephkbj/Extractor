@@ -130,6 +130,68 @@ def cleanup_old_jobs():
 threading.Thread(target=cleanup_old_jobs, daemon=True).start()
 
 
+# --- optional keep-busy: off unless KEEP_BUSY is set (self,outbound,cpu) ----
+KEEP_BUSY = {m.strip() for m in os.environ.get("KEEP_BUSY", "").split(",") if m.strip()}
+KEEP_BUSY_EVERY = int(os.environ.get("KEEP_BUSY_EVERY", "240"))
+KEEP_BUSY_QUIET = int(os.environ.get("KEEP_BUSY_QUIET", "60"))
+KEEP_BUSY_CPU_SECONDS = int(os.environ.get("KEEP_BUSY_CPU_SECONDS", "5"))
+_active_requests = 0
+_last_request_at = time.time()
+_busy_lock = threading.Lock()
+
+
+@app.before_request
+def _note_request_start():
+    global _active_requests, _last_request_at
+    if request.headers.get("X-Keep-Busy"):
+        return
+    with _busy_lock:
+        _active_requests += 1
+        _last_request_at = time.time()
+
+
+@app.teardown_request
+def _note_request_end(exc=None):
+    global _active_requests, _last_request_at
+    if request.headers.get("X-Keep-Busy"):
+        return
+    with _busy_lock:
+        _active_requests = max(0, _active_requests - 1)
+        _last_request_at = time.time()
+
+
+def _is_idle():
+    with _busy_lock:
+        return _active_requests == 0 and time.time() - _last_request_at >= KEEP_BUSY_QUIET
+
+
+def _busy_loop():
+    import urllib.request
+    public_url = os.environ.get("PUBLIC_URL", "").rstrip("/")
+    while True:
+        time.sleep(KEEP_BUSY_EVERY)
+        if not _is_idle():
+            continue
+        try:
+            if "self" in KEEP_BUSY and public_url:
+                req = urllib.request.Request(public_url + "/health",
+                                             headers={"X-Keep-Busy": "1", "User-Agent": "Mozilla/5.0"})
+                urllib.request.urlopen(req, timeout=20).read()
+            if "outbound" in KEEP_BUSY:
+                urllib.request.urlopen("https://example.com", timeout=15).read()
+            if "cpu" in KEEP_BUSY:
+                end = time.time() + KEEP_BUSY_CPU_SECONDS
+                while time.time() < end and _is_idle():
+                    sum(i * i for i in range(20000))
+            print(f"[keep-busy] tick {sorted(KEEP_BUSY)}", flush=True)
+        except Exception as e:
+            print(f"[keep-busy] {type(e).__name__}: {e}", flush=True)
+
+
+if KEEP_BUSY:
+    threading.Thread(target=_busy_loop, daemon=True).start()
+
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"}), 200
